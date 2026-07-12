@@ -1,6 +1,10 @@
 import { describe, expect, it } from '@jest/globals';
 import request from 'supertest';
-import { importFreshApp } from './test/helpers/http.js';
+import { importFreshApp, importFreshServerModule } from './test/helpers/http.js';
+
+interface HealthResponseBody {
+  supabase: unknown;
+}
 
 describe('server shared behavior', () => {
   it('serves root metadata, health, OpenAPI JSON, and favicon responses', async () => {
@@ -21,6 +25,12 @@ describe('server shared behavior', () => {
     expect(health.body).toMatchObject({
       status: 'healthy',
       environment: 'test',
+      supabase: {
+        url: 'http://127.0.0.1:54321',
+        projectRef: 'local',
+        environment: 'local',
+        isProduction: false,
+      },
     });
     expect(typeof (health.body as { timestamp: unknown }).timestamp).toBe('string');
 
@@ -46,6 +56,81 @@ describe('server shared behavior', () => {
           documentation: '/docs',
         });
       });
+  });
+
+  it('reports production Supabase metadata as unsafe on /health', async () => {
+    const app = await importFreshApp({
+      supabaseUrl: 'https://ivhsrdfhjxtrxvrwswuk.supabase.co',
+    });
+
+    await request(app)
+      .get('/health')
+      .expect(200)
+      .expect(({ body }) => {
+        expect((body as HealthResponseBody).supabase).toEqual({
+          url: 'https://ivhsrdfhjxtrxvrwswuk.supabase.co',
+          projectRef: 'ivhsrdfhjxtrxvrwswuk',
+          environment: 'production',
+          isProduction: true,
+        });
+      });
+  });
+
+  it('reports missing Supabase URL as unsafe on /health', async () => {
+    const app = await importFreshApp({ supabaseUrl: null });
+
+    await request(app)
+      .get('/health')
+      .expect(200)
+      .expect(({ body }) => {
+        expect((body as HealthResponseBody).supabase).toEqual({
+          url: null,
+          projectRef: 'unknown',
+          environment: 'unknown',
+          isProduction: true,
+        });
+      });
+  });
+
+  it('reports malformed Supabase URL as unsafe on /health', async () => {
+    const app = await importFreshApp({ supabaseUrl: 'not a url' });
+
+    await request(app)
+      .get('/health')
+      .expect(200)
+      .expect(({ body }) => {
+        expect((body as HealthResponseBody).supabase).toEqual({
+          url: 'not a url',
+          projectRef: 'unknown',
+          environment: 'unknown',
+          isProduction: true,
+        });
+      });
+  });
+
+  it('allows local admin origin to call /health', async () => {
+    const app = await importFreshApp();
+
+    await request(app)
+      .get('/health')
+      .set('Origin', 'http://localhost:5174')
+      .expect(200)
+      .expect((response) => {
+        const headers = (response as unknown as { headers: Record<string, string | undefined> })
+          .headers;
+        expect(headers['access-control-allow-origin']).toBe('http://localhost:5174');
+      });
+  });
+
+  it('includes Supabase target environment in startup log metadata', async () => {
+    const { getStartupLogMetadata } = await importFreshServerModule();
+
+    expect(getStartupLogMetadata(3000)).toMatchObject({
+      message: 'SJBA Backend server running on port 3000',
+      database: 'Supabase PostgreSQL',
+      dbEnvironment: 'local',
+      healthCheck: 'http://localhost:3000/health',
+    });
   });
 
   it('maps unknown routes through the JSON 404 error handler', async () => {

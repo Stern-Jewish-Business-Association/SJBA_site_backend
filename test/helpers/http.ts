@@ -2,16 +2,30 @@ import { jest } from '@jest/globals';
 import type { Application } from 'express';
 import { createSupabaseQueryMock } from './supabase.js';
 
-export const importFreshApp = async ({
-  enableRateLimit = false,
-}: {
+interface ImportFreshAppOptions {
   enableRateLimit?: boolean;
-} = {}): Promise<Application> => {
+  supabaseUrl?: string | null;
+}
+
+interface FreshServerModule {
+  default: Application;
+  getStartupLogMetadata: (port: string | number) => Record<string, unknown>;
+}
+
+export const importFreshServerModule = async ({
+  enableRateLimit = false,
+  supabaseUrl,
+}: ImportFreshAppOptions = {}): Promise<FreshServerModule> => {
   jest.resetModules();
   process.env.NODE_ENV = 'test';
   process.env.VERCEL = '1';
   process.env.SKIP_STARTUP_CONNECTION_TESTS = 'true';
   process.env.ENABLE_RATE_LIMIT = enableRateLimit ? 'true' : 'false';
+  if (supabaseUrl === null) {
+    process.env.SUPABASE_URL = '';
+  } else {
+    process.env.SUPABASE_URL = supabaseUrl ?? 'http://127.0.0.1:54321';
+  }
 
   const healthQuery = createSupabaseQueryMock({ data: [{ id: 'event-id' }], error: null });
 
@@ -55,6 +69,10 @@ export const importFreshApp = async ({
     testMailchimpConnection: jest.fn(),
   }));
 
-  const { default: app } = (await import('../../server.js')) as { default: Application };
+  return (await import('../../server.js')) as FreshServerModule;
+};
+
+export const importFreshApp = async (options: ImportFreshAppOptions = {}): Promise<Application> => {
+  const { default: app } = await importFreshServerModule(options);
   return app;
 };

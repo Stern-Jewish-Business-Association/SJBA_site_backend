@@ -547,7 +547,38 @@ const options: swaggerJsdoc.Options = {
                       timestamp: { type: 'string', format: 'date-time' },
                       uptime: { type: 'number', description: 'Uptime in seconds' },
                       environment: { type: 'string' },
+                      supabase: {
+                        type: 'object',
+                        description:
+                          'Non-secret Supabase target metadata for local admin safety checks. Never includes API keys, JWT secrets, or database credentials.',
+                        properties: {
+                          url: {
+                            type: 'string',
+                            nullable: true,
+                            example: 'http://127.0.0.1:54321',
+                          },
+                          projectRef: {
+                            type: 'string',
+                            description:
+                              'Supabase project ref derived from the SUPABASE_URL hostname when possible. Local loopback URLs report "local".',
+                            example: 'local',
+                          },
+                          environment: {
+                            type: 'string',
+                            enum: ['local', 'production', 'unknown'],
+                            example: 'local',
+                          },
+                          isProduction: {
+                            type: 'boolean',
+                            description:
+                              'False only for local Supabase targets. True for the production Supabase target and unsafe unknown targets, including missing or malformed SUPABASE_URL values.',
+                            example: false,
+                          },
+                        },
+                        required: ['url', 'projectRef', 'environment', 'isProduction'],
+                      },
                     },
+                    required: ['status', 'timestamp', 'uptime', 'environment', 'supabase'],
                   },
                 },
               },
