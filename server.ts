@@ -7,6 +7,7 @@ import http from 'http';
 import dotenv from 'dotenv';
 
 import { initializeSupabase, testConnection, getSupabase } from './config/supabase.js';
+import { getSupabaseTargetMetadata } from './config/supabaseTarget.js';
 import { initializeEmailTransporter } from './config/email.js';
 import { initializeMailchimp, testMailchimpConnection } from './config/mailchimp.js';
 import { errorHandler, notFound, validateReferer } from './middleware/index.js';
@@ -214,6 +215,7 @@ app.get('/health', (_req: Request, res: Response): void => {
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     environment: process.env.NODE_ENV || 'development',
+    supabase: getSupabaseTargetMetadata(),
   });
 });
 
@@ -281,6 +283,21 @@ app.use(errorHandler as (err: Error, req: Request, res: Response, next: NextFunc
 
 let server: http.Server | undefined;
 
+export const getStartupLogMetadata = (port: string | number): Record<string, unknown> => {
+  const supabaseTarget = getSupabaseTargetMetadata();
+
+  return {
+    message: `SJBA Backend server running on port ${port}`,
+    environment: process.env.NODE_ENV || 'development',
+    database: 'Supabase PostgreSQL',
+    dbEnvironment: supabaseTarget.environment,
+    healthCheck: `http://localhost:${port}/health`,
+    apiInfo: `http://localhost:${port}/v1`,
+    docs: `http://localhost:${port}/docs`,
+    openapi: `http://localhost:${port}/docs.json`,
+  };
+};
+
 // Graceful shutdown
 const gracefulShutdown = (signal: string): void => {
   logger.info({
@@ -331,15 +348,7 @@ process.on('unhandledRejection', (reason: unknown, promise: Promise<unknown>) =>
 // Only start server if not in Vercel (serverless) environment
 if (process.env.VERCEL !== '1') {
   server = app.listen(PORT, () => {
-    logger.info({
-      message: `SJBA Backend server running on port ${PORT}`,
-      environment: process.env.NODE_ENV || 'development',
-      database: 'Supabase PostgreSQL',
-      healthCheck: `http://localhost:${PORT}/health`,
-      apiInfo: `http://localhost:${PORT}/v1`,
-      docs: `http://localhost:${PORT}/docs`,
-      openapi: `http://localhost:${PORT}/docs.json`,
-    });
+    logger.info(getStartupLogMetadata(PORT));
   });
 }
 

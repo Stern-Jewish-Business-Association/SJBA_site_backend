@@ -10,6 +10,7 @@ A Node.js/Express backend API for the Stern Jewish Business Association website.
 
 **Live API**: [api.nyu-sjba.org](https://api.nyu-sjba.org)
 **Live Frontend**: [nyu-sjba.org](https://nyu-sjba.org)
+**Live Admin Panel**: [admin.nyu-sjba.org](https://admin.nyu-sjba.org)
 **Status Page**: [status.nyu-sjba.org](https://status.nyu-sjba.org)
 
 ## Documentation
