@@ -9,5 +9,6 @@ export interface BoardMemberRow {
   linkedin_url: string | null;
   email: string;
   headshot_file: string | null;
+  headshot_updated_at: string;
   order_index: number;
 }
