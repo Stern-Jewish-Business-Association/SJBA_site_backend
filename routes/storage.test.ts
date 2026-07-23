@@ -234,7 +234,7 @@ describe('admin storage routes', () => {
 
     await handler(
       createRequest({
-        params: { bucketId: 'board-headshots' },
+        params: { bucketId: 'private-bucket' },
         body: {
           path: 'members/headshot.jpg',
           contentBase64: Buffer.from('new-bytes').toString('base64'),
@@ -250,6 +250,81 @@ describe('admin storage routes', () => {
     expect(response.status).toHaveBeenCalledWith(200);
   });
 
+  it('requires the coordinated workflow to replace event flyers', async () => {
+    const handler = await getRouteHandler('/buckets/:bucketId/objects', 'put');
+    const response = createResponse();
+
+    await handler(
+      createRequest({
+        params: { bucketId: 'event-flyers' },
+        body: {
+          path: 'events/panel.jpg',
+          contentBase64: Buffer.from('new-bytes').toString('base64'),
+          contentType: 'image/jpeg',
+        },
+      }),
+      response
+    );
+
+    expect(updateObject).not.toHaveBeenCalled();
+    expect(response.status).toHaveBeenCalledWith(400);
+    expect(response.json).toHaveBeenCalledWith({
+      success: false,
+      error: {
+        message: 'Replace objects in event-flyers through PUT /v1/events/:id/flyer',
+        code: 'VERSIONED_IMAGE_WORKFLOW_REQUIRED',
+      },
+    });
+  });
+
+  it('rejects upload-with-upsert for event flyers', async () => {
+    const handler = await getRouteHandler('/buckets/:bucketId/objects', 'post');
+    const response = createResponse();
+
+    await handler(
+      createRequest({
+        params: { bucketId: 'event-flyers' },
+        body: {
+          path: 'events/panel.jpg',
+          contentBase64: Buffer.from('new-bytes').toString('base64'),
+          contentType: 'image/jpeg',
+          upsert: true,
+        },
+      }),
+      response
+    );
+
+    expect(uploadObject).not.toHaveBeenCalled();
+    expect(response.status).toHaveBeenCalledWith(400);
+  });
+
+  it('requires the coordinated workflow to replace board headshots', async () => {
+    const handler = await getRouteHandler('/buckets/:bucketId/objects', 'put');
+    const response = createResponse();
+
+    await handler(
+      createRequest({
+        params: { bucketId: 'board-headshots' },
+        body: {
+          path: 'members/ada.jpg',
+          contentBase64: Buffer.from('new-bytes').toString('base64'),
+          contentType: 'image/jpeg',
+        },
+      }),
+      response
+    );
+
+    expect(updateObject).not.toHaveBeenCalled();
+    expect(response.status).toHaveBeenCalledWith(400);
+    expect(response.json).toHaveBeenCalledWith({
+      success: false,
+      error: {
+        message: 'Replace objects in board-headshots through PUT /v1/board-members/:id/headshot',
+        code: 'VERSIONED_IMAGE_WORKFLOW_REQUIRED',
+      },
+    });
+  });
+
   it('renames a bucket object', async () => {
     moveObject.mockResolvedValue({ data: { path: 'members/new.jpg' }, error: null });
     const handler = await getRouteHandler('/buckets/:bucketId/objects', 'put');
@@ -257,7 +332,7 @@ describe('admin storage routes', () => {
 
     await handler(
       createRequest({
-        params: { bucketId: 'board-headshots' },
+        params: { bucketId: 'private-bucket' },
         body: {
           path: 'members/old.jpg',
           newPath: 'members/new.jpg',

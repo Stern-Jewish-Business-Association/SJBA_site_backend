@@ -127,6 +127,25 @@ const sendValidationError = (res: Response, message: string): void => {
   });
 };
 
+const VERSIONED_IMAGE_WORKFLOWS: Record<string, string> = {
+  'event-flyers': 'PUT /v1/events/:id/flyer',
+  'board-headshots': 'PUT /v1/board-members/:id/headshot',
+};
+
+const sendVersionedImageWorkflowRequired = (
+  res: Response,
+  bucketId: string,
+  workflowPath: string
+): void => {
+  res.status(400).json({
+    success: false,
+    error: {
+      message: `Replace objects in ${bucketId} through ${workflowPath}`,
+      code: 'VERSIONED_IMAGE_WORKFLOW_REQUIRED',
+    },
+  });
+};
+
 const normalizeStoragePath = (value: unknown, label = 'path'): string | null => {
   if (typeof value !== 'string') {
     return null;
@@ -361,6 +380,12 @@ router.post(
       return;
     }
 
+    const replacementWorkflow = VERSIONED_IMAGE_WORKFLOWS[req.params.bucketId as string];
+    if (replacementWorkflow && parseBoolean(body.upsert)) {
+      sendVersionedImageWorkflowRequired(res, req.params.bucketId as string, replacementWorkflow);
+      return;
+    }
+
     const bucket = getBucketClient(req.params.bucketId as string);
     const result = await bucket.upload(path, fileBody, {
       ...getContentOptions(body),
@@ -396,6 +421,12 @@ router.put(
 
     if (!path) {
       sendValidationError(res, 'path is required');
+      return;
+    }
+
+    const replacementWorkflow = VERSIONED_IMAGE_WORKFLOWS[req.params.bucketId as string];
+    if (replacementWorkflow) {
+      sendVersionedImageWorkflowRequired(res, req.params.bucketId as string, replacementWorkflow);
       return;
     }
 

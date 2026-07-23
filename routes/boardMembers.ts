@@ -15,6 +15,7 @@ import {
   createAdminUpdateHandler,
   handleAdminValidationErrors,
 } from './adminResource.js';
+import { replaceBoardMemberHeadshotHandler } from './boardMemberHeadshot.js';
 
 const router = express.Router();
 
@@ -62,6 +63,19 @@ router.get(
   @access  Admin
 */
 router.post('/', requireAdminUser, createAdminCreateHandler('board-members'));
+
+/*
+  @desc    Replace a board member's full-size headshot and thumbnail
+  @route   PUT /v1/board-members/:id/headshot
+  @access  Admin
+*/
+router.put(
+  '/:id/headshot',
+  requireAdminUser,
+  adminIdValidation,
+  handleAdminValidationErrors,
+  asyncHandler(replaceBoardMemberHeadshotHandler)
+);
 
 /*
   @desc    Get single board member

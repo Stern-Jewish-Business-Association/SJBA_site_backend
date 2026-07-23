@@ -124,6 +124,26 @@ Supabase Storage folders are virtual path prefixes, not standalone empty folder 
 
 The current backend accepts JSON uploads, so large files are constrained by the backend JSON body limit. If the admin panel needs large media uploads later, add a multipart or signed-upload flow deliberately rather than increasing JSON payload limits casually.
 
+### Versioned image replacements
+
+Event flyers and board-member headshots must be replaced through their coordinated resource endpoints, not through the generic Storage update route:
+
+```http
+PUT /v1/events/{id}/flyer
+PUT /v1/board-members/{id}/headshot
+```
+
+Each request supplies a full-size image and a JPEG thumbnail. Paths are relative to the bucket and are tied to the resource UUID from the endpoint URL:
+
+```text
+Full-size: {id}.{original-extension}
+Thumbnail: thumbnails/{id}.jpg
+```
+
+For example, an event with ID `9e8a83da-3590-45e5-8903-3ff721521a56` can use `9e8a83da-3590-45e5-8903-3ff721521a56.webp` and must use `thumbnails/9e8a83da-3590-45e5-8903-3ff721521a56.jpg`. Full-size paths containing `/`, filenames based on anything other than the resource ID, and bucket-name-prefixed paths are rejected.
+
+The thumbnail payload must use `contentType: image/jpeg`. The backend uploads the full-size image and thumbnail with a one-year cache lifetime, then advances the owning row's version timestamp. Public clients append that timestamp as the URL `v` query parameter. If either upload fails, the row and its cache version are not updated; the admin panel should report the failure and retry the coordinated request.
+
 ## How Supabase Fits In
 
 Supabase has two separate layers in this project:

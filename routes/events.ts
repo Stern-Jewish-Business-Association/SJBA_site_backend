@@ -23,6 +23,7 @@ import {
   createAdminUpdateHandler,
   handleAdminValidationErrors,
 } from './adminResource.js';
+import { replaceEventFlyerHandler } from './eventFlyer.js';
 
 const router = express.Router();
 
@@ -165,6 +166,17 @@ router.get(
       data: events,
     });
   })
+);
+
+// @desc    Replace an event's full-size flyer and thumbnail
+// @route   PUT /v1/events/:id/flyer
+// @access  Admin
+router.put(
+  '/:id/flyer',
+  requireAdminUser,
+  adminIdValidation,
+  handleAdminValidationErrors,
+  asyncHandler(replaceEventFlyerHandler)
 );
 
 // @desc    Get single event
