@@ -1,4 +1,4 @@
-import { mkdir, readdir, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import { spawn } from 'node:child_process';
@@ -45,10 +45,17 @@ export interface StorageUploadCommand {
   sourceDir: string;
 }
 
+export interface CleanStorageBucketCommand {
+  kind: 'clean-storage-bucket';
+  label: string;
+  bucket: string;
+}
+
 export type PlannedCommand =
   | ShellCommand
   | ManifestCommand
   | AssertFileCommand
+  | CleanStorageBucketCommand
   | StorageUploadCommand;
 
 export interface ExecutionPlan {
@@ -73,6 +80,14 @@ const parseList = (value: string): string[] =>
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean);
+
+const STORAGE_BUCKET_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+const assertValidBucket = (bucket: string): void => {
+  if (!STORAGE_BUCKET_PATTERN.test(bucket)) {
+    throw new Error(`Invalid storage bucket name: ${bucket}`);
+  }
+};
 
 const requireValue = (args: string[], index: number, flag: string): string => {
   const value = args[index + 1];
@@ -121,6 +136,7 @@ export const parseArgs = (argv: string[], env: NodeJS.ProcessEnv = process.env):
   if (options.buckets.length === 0) {
     throw new Error('At least one storage bucket is required');
   }
+  options.buckets.forEach(assertValidBucket);
 
   return options;
 };
@@ -175,20 +191,27 @@ export const buildPlan = (options: Options): ExecutionPlan => {
             dataDump,
           ],
         },
-        ...options.buckets.map<ShellCommand>((bucket) => ({
-          kind: 'shell',
-          label: `download ${bucket} storage objects`,
-          command: 'supabase',
-          args: [
-            '--experimental',
-            'storage',
-            'cp',
-            '--linked',
-            '--recursive',
-            `ss:///${bucket}`,
-            snapshotPath(storageDir, bucket),
-          ],
-        })),
+        ...options.buckets.flatMap<PlannedCommand>((bucket) => [
+          {
+            kind: 'clean-storage-bucket',
+            label: `clean ${bucket} snapshot destination`,
+            bucket,
+          },
+          {
+            kind: 'shell',
+            label: `download ${bucket} storage objects`,
+            command: 'supabase',
+            args: [
+              '--experimental',
+              'storage',
+              'cp',
+              '--linked',
+              '--recursive',
+              `ss:///${bucket}`,
+              storageDir,
+            ],
+          },
+        ]),
         {
           kind: 'manifest',
           label: 'write manifest',
@@ -236,6 +259,25 @@ const printableCommand = (command: ShellCommand): string =>
 
 const toStoragePath = (filePath: string): string => filePath.split(path.sep).join('/');
 
+export const getStorageUploadPath = (
+  sourceDir: string,
+  filePath: string,
+  bucket: string
+): string => {
+  const relativePath = toStoragePath(path.relative(sourceDir, filePath));
+  if (
+    !relativePath ||
+    relativePath === '..' ||
+    relativePath.startsWith('../') ||
+    relativePath.split('/')[0] === bucket
+  ) {
+    throw new Error(
+      `Refusing to upload a path outside the ${bucket} bucket contents: ${relativePath}`
+    );
+  }
+  return relativePath;
+};
+
 const listFiles = async (directory: string): Promise<string[]> => {
   const entries = await readdir(directory, { withFileTypes: true });
   const files = await Promise.all(
@@ -276,11 +318,29 @@ const assertFileExists = async (filePath: string): Promise<void> => {
   }
 };
 
+export const cleanStorageBucketDestination = async (
+  snapshotDir: string,
+  bucket: string
+): Promise<void> => {
+  assertValidBucket(bucket);
+  const storageRoot = path.resolve(snapshotDir, 'storage');
+  const bucketDestination = path.resolve(storageRoot, bucket);
+
+  if (
+    path.dirname(bucketDestination) !== storageRoot ||
+    path.basename(bucketDestination) !== bucket
+  ) {
+    throw new Error(`Refusing to clean unsafe storage snapshot path: ${bucketDestination}`);
+  }
+
+  await rm(bucketDestination, { recursive: true, force: true });
+};
+
 const uploadStorageDirectory = async (command: StorageUploadCommand): Promise<void> => {
   const files = await listFiles(command.sourceDir);
 
   for (const filePath of files) {
-    const relativePath = toStoragePath(path.relative(command.sourceDir, filePath));
+    const relativePath = getStorageUploadPath(command.sourceDir, filePath, command.bucket);
     await runShellCommand({
       kind: 'shell',
       label: `${command.label}: ${relativePath}`,
@@ -350,6 +410,10 @@ const executePlan = async (options: Options, plan: ExecutionPlan): Promise<void>
         console.log(`[dry-run] ${command.label}: ${command.filePath}`);
       } else if (command.kind === 'storage-upload') {
         console.log(`[dry-run] ${command.label}: ${command.sourceDir} -> ss:///${command.bucket}`);
+      } else if (command.kind === 'clean-storage-bucket') {
+        console.log(
+          `[dry-run] ${command.label}: ${snapshotPath(plan.snapshotDir, 'storage', command.bucket)}`
+        );
       } else {
         console.log(
           `[dry-run] ${command.label}: ${snapshotPath(plan.snapshotDir, 'manifest.json')}`
@@ -369,6 +433,8 @@ const executePlan = async (options: Options, plan: ExecutionPlan): Promise<void>
       await assertFileExists(command.filePath);
     } else if (command.kind === 'storage-upload') {
       await uploadStorageDirectory(command);
+    } else if (command.kind === 'clean-storage-bucket') {
+      await cleanStorageBucketDestination(plan.snapshotDir, command.bucket);
     } else {
       await writeManifest(plan);
     }
