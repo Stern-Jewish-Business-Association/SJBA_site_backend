@@ -12,6 +12,7 @@ class BoardMember {
   linkedinUrl: string | null;
   email: string;
   headshotFile: string | null;
+  headshotUpdatedAt: string;
   orderIndex: number;
 
   constructor(data: BoardMemberRow) {
@@ -25,6 +26,7 @@ class BoardMember {
     this.linkedinUrl = data.linkedin_url;
     this.email = data.email;
     this.headshotFile = data.headshot_file;
+    this.headshotUpdatedAt = data.headshot_updated_at;
     this.orderIndex = data.order_index;
   }
 
@@ -45,6 +47,7 @@ class BoardMember {
       linkedinUrl: apiMember.linkedin_url,
       email: apiMember.email,
       headshotFile: apiMember.headshot_file,
+      headshotUpdatedAt: apiMember.headshot_updated_at,
       orderIndex: apiMember.order_index,
     };
   }
@@ -61,6 +64,7 @@ class BoardMember {
       linkedin_url: this.linkedinUrl,
       email: this.email,
       headshot_file: this.headshotFile,
+      headshot_updated_at: this.headshotUpdatedAt,
       order_index: this.orderIndex,
     };
   }

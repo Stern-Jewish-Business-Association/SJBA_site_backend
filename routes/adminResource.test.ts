@@ -104,3 +104,79 @@ describe('site config admin resource', () => {
     expect(status).toHaveBeenCalledWith(200);
   });
 });
+
+describe('board member admin resource', () => {
+  it('advances the headshot version when the headshot field is saved', async () => {
+    const boardMemberQuery = createSupabaseQueryMock({
+      data: {
+        id: 'dbc59546-fdd5-48f5-81ff-c1ec6e5efde9',
+        headshot_file: 'ada.jpg',
+        headshot_updated_at: '2026-07-23T00:00:00.000Z',
+      },
+      error: null,
+    });
+    const from = jest.fn<(table: string) => SupabaseQueryMock>(() => boardMemberQuery);
+    const { getSupabaseAdmin } = (await import('../config/supabase.js')) as unknown as {
+      getSupabaseAdmin: jest.Mock<() => { from: typeof from }>;
+    };
+    getSupabaseAdmin.mockReturnValue({ from });
+
+    const { createAdminUpdateHandler } = await import('./adminResource.js');
+    const handler = createAdminUpdateHandler('board-members') as unknown as (
+      req: Request,
+      res: Response
+    ) => Promise<void>;
+    const req = {
+      body: { headshotFile: 'ada.jpg' },
+      params: { id: 'dbc59546-fdd5-48f5-81ff-c1ec6e5efde9' },
+    } as unknown as Request;
+    const status = jest.fn<(statusCode: number) => Response>().mockReturnThis();
+    const json = jest.fn<(body: unknown) => Response>().mockReturnThis();
+    const res = { status, json } as unknown as Response;
+
+    await handler(req, res);
+
+    expect(from).toHaveBeenCalledWith('board_members');
+    expect(boardMemberQuery.update).toHaveBeenCalledWith({
+      headshot_file: 'ada.jpg',
+      headshot_updated_at: expect.any(String),
+    });
+    expect(status).toHaveBeenCalledWith(200);
+  });
+});
+
+describe('semester admin resource', () => {
+  it('returns a conflict instead of an internal error when the semester is still referenced', async () => {
+    const semesterQuery = createSupabaseQueryMock({
+      data: null,
+      error: { code: '23503', message: 'foreign key violation' },
+    });
+    const from = jest.fn<(table: string) => SupabaseQueryMock>(() => semesterQuery);
+    const { getSupabaseAdmin } = (await import('../config/supabase.js')) as unknown as {
+      getSupabaseAdmin: jest.Mock<() => { from: typeof from }>;
+    };
+    getSupabaseAdmin.mockReturnValue({ from });
+
+    const { createAdminDeleteHandler } = await import('./adminResource.js');
+    const handler = createAdminDeleteHandler('semesters') as unknown as (
+      req: Request,
+      res: Response
+    ) => Promise<void>;
+    const req = { params: { id: 'semester-1' } } as unknown as Request;
+    const status = jest.fn<(statusCode: number) => Response>().mockReturnThis();
+    const json = jest.fn<(body: unknown) => Response>().mockReturnThis();
+    const res = { status, json } as unknown as Response;
+
+    await handler(req, res);
+
+    expect(status).toHaveBeenCalledWith(409);
+    expect(json).toHaveBeenCalledWith({
+      success: false,
+      error: {
+        message:
+          'This semester is still assigned to one or more events or members. Reassign those records before deleting it.',
+        code: 'SEMESTER_IN_USE',
+      },
+    });
+  });
+});

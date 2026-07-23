@@ -311,6 +311,7 @@ const options: swaggerJsdoc.Options = {
             linkedinUrl: { type: 'string', nullable: true, format: 'uri' },
             email: { type: 'string', format: 'email' },
             headshotFile: { type: 'string', nullable: true },
+            headshotUpdatedAt: { type: 'string', format: 'date-time' },
             orderIndex: { type: 'integer' },
           },
         },
@@ -392,7 +393,7 @@ const options: swaggerJsdoc.Options = {
           type: 'object',
           properties: {
             name: { type: 'string', example: 'headshot.jpg' },
-            path: { type: 'string', example: 'members/headshot.jpg' },
+            path: { type: 'string', example: 'dbc59546-fdd5-48f5-81ff-c1ec6e5efde9.jpg' },
             type: { type: 'string', enum: ['file', 'folder'] },
             metadata: { type: 'object', nullable: true, additionalProperties: true },
             publicUrl: {
@@ -411,7 +412,7 @@ const options: swaggerJsdoc.Options = {
           properties: {
             path: {
               type: 'string',
-              example: 'members/headshot.jpg',
+              example: 'dbc59546-fdd5-48f5-81ff-c1ec6e5efde9.jpg',
               description: 'Relative object path. Do not include a leading slash.',
             },
             contentBase64: {
@@ -431,10 +432,10 @@ const options: swaggerJsdoc.Options = {
           type: 'object',
           required: ['path'],
           properties: {
-            path: { type: 'string', example: 'members/old-headshot.jpg' },
+            path: { type: 'string', example: 'dbc59546-fdd5-48f5-81ff-c1ec6e5efde9.jpg' },
             newPath: {
               type: 'string',
-              example: 'members/new-headshot.jpg',
+              example: 'dbc59546-fdd5-48f5-81ff-c1ec6e5efde9.webp',
               description: 'Optional destination path for rename/move.',
             },
             contentBase64: {
@@ -453,16 +454,65 @@ const options: swaggerJsdoc.Options = {
         StorageDeleteRequest: {
           type: 'object',
           properties: {
-            path: { type: 'string', example: 'members/headshot.jpg' },
+            path: { type: 'string', example: 'dbc59546-fdd5-48f5-81ff-c1ec6e5efde9.jpg' },
             paths: {
               type: 'array',
               items: { type: 'string' },
-              example: ['members/headshot.jpg', 'members/archive/headshot.jpg'],
+              example: [
+                'dbc59546-fdd5-48f5-81ff-c1ec6e5efde9.jpg',
+                'thumbnails/dbc59546-fdd5-48f5-81ff-c1ec6e5efde9.jpg',
+              ],
             },
             recursive: {
               type: 'boolean',
               default: false,
               description: 'When true, delete every object under each provided path prefix.',
+            },
+          },
+        },
+        VersionedImageUpload: {
+          type: 'object',
+          required: ['path', 'contentBase64', 'contentType'],
+          properties: {
+            path: {
+              type: 'string',
+              example: '9e8a83da-3590-45e5-8903-3ff721521a56.webp',
+              description:
+                'Root-level full-size path. The filename basename must exactly equal the resource UUID from the endpoint path; directories and bucket-name prefixes are rejected.',
+            },
+            contentBase64: {
+              type: 'string',
+              description:
+                'Base64-encoded image content. The full request, including both variants, must fit within the 10 MB JSON body limit.',
+            },
+            contentType: {
+              type: 'string',
+              pattern: '^image/',
+              example: 'image/webp',
+            },
+          },
+        },
+        VersionedImageReplacementRequest: {
+          type: 'object',
+          required: ['fullSize', 'thumbnail'],
+          properties: {
+            fullSize: { $ref: '#/components/schemas/VersionedImageUpload' },
+            thumbnail: {
+              allOf: [
+                { $ref: '#/components/schemas/VersionedImageUpload' },
+                {
+                  type: 'object',
+                  properties: {
+                    path: {
+                      type: 'string',
+                      example: 'thumbnails/9e8a83da-3590-45e5-8903-3ff721521a56.jpg',
+                    },
+                    contentType: { type: 'string', enum: ['image/jpeg'], example: 'image/jpeg' },
+                  },
+                },
+              ],
+              description:
+                'JPEG thumbnail. The path must be exactly thumbnails/{id}.jpg, where {id} is the resource UUID from the endpoint path. contentType must be image/jpeg.',
             },
           },
         },
@@ -755,6 +805,67 @@ const options: swaggerJsdoc.Options = {
           'Board member UUID'
         ),
       },
+      '/v1/board-members/{id}/headshot': {
+        put: {
+          tags: ['Board Members', 'Admin'],
+          summary: 'Admin: replace a board member headshot and thumbnail',
+          description:
+            'Requires bearer auth with admin privileges. The full-size path must be {id}.{extension} at the bucket root and the thumbnail path must be exactly thumbnails/{id}.jpg. Uploads both objects to the board-headshots bucket with a one-year cache lifetime before updating headshotFile and headshotUpdatedAt on the board member. Returned object URLs are versioned with the new headshotUpdatedAt value.',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              name: 'id',
+              in: 'path',
+              required: true,
+              schema: { type: 'string', format: 'uuid' },
+              description: 'Board member UUID',
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/VersionedImageReplacementRequest' },
+              },
+            },
+          },
+          responses: {
+            '200': {
+              description: 'Both headshot variants uploaded and the board member updated',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean', example: true },
+                      data: {
+                        type: 'object',
+                        properties: {
+                          boardMember: { $ref: '#/components/schemas/BoardMember' },
+                          headshot: {
+                            type: 'object',
+                            properties: {
+                              fullSizePath: { type: 'string' },
+                              thumbnailPath: { type: 'string' },
+                              fullSizeUrl: { type: 'string', format: 'uri' },
+                              thumbnailUrl: { type: 'string', format: 'uri' },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            '400': { description: 'Invalid member ID, object path, content, or media type' },
+            '401': { description: 'Missing or invalid bearer token' },
+            '403': { description: 'Authenticated user is not an admin or referer is forbidden' },
+            '404': { description: 'Board member not found' },
+            '429': { description: 'Too Many Requests' },
+          },
+        },
+      },
 
       // ═══════════════════════════════════════════════════════
       //  Events
@@ -999,6 +1110,67 @@ const options: swaggerJsdoc.Options = {
         },
         put: adminUpdateOperation('Events', 'Admin: update event', 'Event UUID'),
         delete: adminDeleteOperation('Events', 'Admin: delete event', 'Event UUID'),
+      },
+      '/v1/events/{id}/flyer': {
+        put: {
+          tags: ['Events', 'Admin'],
+          summary: 'Admin: replace an event flyer and thumbnail',
+          description:
+            'Requires bearer auth with admin privileges. The full-size path must be {id}.{extension} at the bucket root and the thumbnail path must be exactly thumbnails/{id}.jpg. Uploads both objects to the event-flyers bucket with a one-year cache lifetime before updating flyerFile and updatedAt on the event. Returned object URLs are versioned with the new updatedAt value.',
+          security: [{ bearerAuth: [] }],
+          parameters: [
+            {
+              name: 'id',
+              in: 'path',
+              required: true,
+              schema: { type: 'string', format: 'uuid' },
+              description: 'Event UUID',
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/VersionedImageReplacementRequest' },
+              },
+            },
+          },
+          responses: {
+            '200': {
+              description: 'Both flyer variants uploaded and the event updated',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean', example: true },
+                      data: {
+                        type: 'object',
+                        properties: {
+                          event: { $ref: '#/components/schemas/Event' },
+                          flyer: {
+                            type: 'object',
+                            properties: {
+                              fullSizePath: { type: 'string' },
+                              thumbnailPath: { type: 'string' },
+                              fullSizeUrl: { type: 'string', format: 'uri' },
+                              thumbnailUrl: { type: 'string', format: 'uri' },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            '400': { description: 'Invalid event ID, object path, content, or media type' },
+            '401': { description: 'Missing or invalid bearer token' },
+            '403': { description: 'Authenticated user is not an admin or referer is forbidden' },
+            '404': { description: 'Event not found' },
+            '429': { description: 'Too Many Requests' },
+          },
+        },
       },
 
       // ═══════════════════════════════════════════════════════
@@ -1455,7 +1627,8 @@ const options: swaggerJsdoc.Options = {
         post: {
           tags: ['Storage', 'Admin'],
           summary: 'Admin: upload bucket object',
-          description: 'Requires bearer auth with admin privileges.',
+          description:
+            'Requires bearer auth with admin privileges. Upload-with-upsert is rejected for event-flyers and board-headshots; use their resource-specific replacement endpoints.',
           security: [{ bearerAuth: [] }],
           parameters: [
             {
@@ -1485,7 +1658,8 @@ const options: swaggerJsdoc.Options = {
         put: {
           tags: ['Storage', 'Admin'],
           summary: 'Admin: replace or rename/move bucket object',
-          description: 'Requires bearer auth with admin privileges.',
+          description:
+            'Requires bearer auth with admin privileges. Replacements and moves in event-flyers and board-headshots are rejected; use the resource-specific replacement endpoints so both image variants and their cache version stay synchronized.',
           security: [{ bearerAuth: [] }],
           parameters: [
             {

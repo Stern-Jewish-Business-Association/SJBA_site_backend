@@ -1,4 +1,12 @@
-import { buildPlan, parseArgs } from './supabase-cloud.js';
+import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import {
+  buildPlan,
+  cleanStorageBucketDestination,
+  getStorageUploadPath,
+  parseArgs,
+} from './supabase-cloud.js';
 import type { ShellCommand, StorageUploadCommand } from './supabase-cloud.js';
 
 const findShellCommand = (label: string, plan: ReturnType<typeof buildPlan>): ShellCommand => {
@@ -71,13 +79,16 @@ describe('supabase cloud snapshot script', () => {
       'dump roles',
       'dump public and storage schema',
       'dump public table rows',
+      'clean board-headshots snapshot destination',
       'download board-headshots storage objects',
+      'clean event-flyers snapshot destination',
       'download event-flyers storage objects',
       'write manifest',
     ]);
     const storageCommand = findShellCommand('download board-headshots storage objects', plan);
     expect(storageCommand.command).toBe('supabase');
     expect(storageCommand.args.slice(0, 3)).toEqual(['--experimental', 'storage', 'cp']);
+    expect(storageCommand.args.at(-1)).toBe('supabase/.cloud-snapshot/latest/storage');
   });
 
   it('applies the downloaded rows and storage objects locally', () => {
@@ -107,5 +118,52 @@ describe('supabase cloud snapshot script', () => {
     expect(storageCommand.sourceDir).toBe(
       'supabase/.cloud-snapshot/latest/storage/board-headshots'
     );
+  });
+
+  it('keeps exactly one bucket directory when a download is repeated', async () => {
+    const snapshotDir = await mkdtemp(path.join(os.tmpdir(), 'sjba-cloud-snapshot-'));
+    const storageDir = path.join(snapshotDir, 'storage');
+    const bucket = 'event-flyers';
+
+    const simulateCliDownload = async () => {
+      await mkdir(path.join(storageDir, bucket), { recursive: true });
+      await writeFile(path.join(storageDir, bucket, 'flyer.jpg'), 'image');
+    };
+
+    try {
+      await mkdir(path.join(storageDir, bucket, bucket), { recursive: true });
+      await writeFile(path.join(storageDir, bucket, bucket, 'stale.jpg'), 'stale');
+
+      await cleanStorageBucketDestination(snapshotDir, bucket);
+      await simulateCliDownload();
+      await cleanStorageBucketDestination(snapshotDir, bucket);
+      await simulateCliDownload();
+
+      expect(await readdir(storageDir)).toEqual([bucket]);
+      expect(await readdir(path.join(storageDir, bucket))).toEqual(['flyer.jpg']);
+    } finally {
+      await rm(snapshotDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects bucket names that could escape the storage snapshot root', () => {
+    expect(() => parseArgs(['download', '--buckets', '../event-flyers'])).toThrow(
+      'Invalid storage bucket name'
+    );
+  });
+
+  it('uploads paths relative to bucket contents and rejects a duplicated bucket prefix', () => {
+    const sourceDir = path.join('snapshot', 'storage', 'event-flyers');
+
+    expect(
+      getStorageUploadPath(sourceDir, path.join(sourceDir, 'thumbnails', 'id.jpg'), 'event-flyers')
+    ).toBe('thumbnails/id.jpg');
+    expect(() =>
+      getStorageUploadPath(
+        sourceDir,
+        path.join(sourceDir, 'event-flyers', 'id.jpg'),
+        'event-flyers'
+      )
+    ).toThrow('outside the event-flyers bucket contents');
   });
 });

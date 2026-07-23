@@ -46,6 +46,8 @@ const resources: Record<AdminResourceKey, AdminResourceConfig> = {
       email: 'email',
       headshotFile: 'headshot_file',
       headshot_file: 'headshot_file',
+      headshotUpdatedAt: 'headshot_updated_at',
+      headshot_updated_at: 'headshot_updated_at',
       orderIndex: 'order_index',
       order_index: 'order_index',
     },
@@ -226,6 +228,10 @@ const toDatabasePayload = (
     payload.updated_at ??= now;
   }
 
+  if (resource.table === 'board_members' && payload.headshot_file !== undefined) {
+    payload.headshot_updated_at = new Date().toISOString();
+  }
+
   if (resource.updateTimestampColumn) {
     payload[resource.updateTimestampColumn] ??= new Date().toISOString();
   }
@@ -376,6 +382,17 @@ export const createAdminDeleteHandler = (resourceKey: AdminResourceKey) =>
     if (result.error) {
       if (result.error.code === 'PGRST116') {
         sendNotFound(res, resource);
+        return;
+      }
+      if (resourceKey === 'semesters' && result.error.code === '23503') {
+        res.status(409).json({
+          success: false,
+          error: {
+            message:
+              'This semester is still assigned to one or more events or members. Reassign those records before deleting it.',
+            code: 'SEMESTER_IN_USE',
+          },
+        });
         return;
       }
       throw new Error(`Failed to delete ${resource.table}: ${describeSupabaseError(result.error)}`);

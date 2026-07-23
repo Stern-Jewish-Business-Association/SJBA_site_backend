@@ -72,6 +72,7 @@ npm run supabase:cloud:download -- --yes
 ```
 
 The script passes `--experimental` to Supabase storage copy commands because `supabase storage cp` is still experimental in the CLI.
+Before each bucket download, the script removes only that bucket's existing destination under `storage/` and then copies into the parent `storage/` directory. This accounts for the CLI preserving the source bucket directory and makes repeated downloads idempotent.
 
 Dry-run without contacting production or downloading files:
 
@@ -98,6 +99,8 @@ npm run supabase:cloud:apply
 ```
 
 The reset step is required because it creates the local schema from `supabase/migrations/` before rows are imported. The apply step imports `data.sql` into local Supabase with `psql` because the dump uses PostgreSQL `COPY ... FROM stdin` format. It then uploads downloaded objects into local Storage with the Supabase CLI. It does not contact production.
+
+Storage upload paths are calculated relative to each bucket directory's contents. A snapshot containing a duplicated bucket directory such as `storage/event-flyers/event-flyers/` is rejected rather than uploaded with the bucket name embedded in its object paths.
 
 Optional overrides:
 
